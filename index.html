@@ -438,7 +438,7 @@
       }
 
       .hero-phone .phone {
-        --w: 330px;
+        --w: 280px; /* desktop hero phone width — change this to resize */
       }
 
       .hero-grid>.maker {
@@ -652,7 +652,7 @@
 
     /* ---------- Phone frame ---------- */
     .phone {
-      --w: min(300px, 76vw);
+      --w: min(260px, 68vw); /* default / mobile hero phone width — change this to resize */
       position: relative;
       z-index: 2;
       width: var(--w);
@@ -2694,15 +2694,15 @@
       website: "",                     // the ofctools website, for people who prefer the browser
       repo: "https://github.com/Abhishek25062001/ofctoolsshowcase",
 
-      hero: { video: "assets/videos/android.mp4", image: "" },
+      // image = light mode, imageDark = dark mode (falls back to image if omitted)
+      hero: { video: "", image: "assets/1.png", imageDark: "assets/d1.png" },
 
+      // src = light mode, srcDark = dark mode (falls back to src if omitted)
       screens: [
-        { src: "assets/1.png", label: "Home" },
-        { src: "assets/2.png", label: "Compress Image" },
-        { src: "assets/3.png", label: "Download " },
-        { src: "assets/4.png", label: "Compare Images" },
-        // { src: "assets/screens/compress.png", label: "Compress" },
-        // { src: "assets/screens/pdf.png", label: "PDF tools" },
+        { src: "assets/1.png", srcDark: "assets/d1.png", label: "Home" },
+        { src: "assets/2.png", srcDark: "assets/d2.png", label: "Compress Image" },
+        { src: "assets/3.png", srcDark: "assets/d3.png", label: "Download " },
+        { src: "assets/4.png", srcDark: "assets/d4.png", label: "Compare Images" },
       ],
     };
 
@@ -2735,11 +2735,21 @@
       /* ---------- Theme: light / system / dark ---------- */
       const THEME_KEY = "ofctools-showcase-theme";
       const themeMeta = $('meta[name="theme-color"]');
+      const themeListeners = [];
+      const onThemeChange = (fn) => themeListeners.push(fn);
+      // Resolved look: explicit light/dark, or the OS setting when mode is "system"
+      function isDarkTheme() {
+        const t = document.documentElement.dataset.theme;
+        if (t === "dark") return true;
+        if (t === "light") return false;
+        return matchMedia("(prefers-color-scheme: dark)").matches;
+      }
       function applyTheme(mode) {
         const root = document.documentElement;
         if (mode === "light" || mode === "dark") root.dataset.theme = mode; else delete root.dataset.theme;
         $$("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode)));
         themeMeta.content = getComputedStyle(root).getPropertyValue("--bg").trim(); // the token, not body's mid-transition colour
+        themeListeners.forEach((fn) => fn(isDarkTheme()));
       }
       let themeMode = document.documentElement.dataset.theme || "system";
       applyTheme(themeMode);
@@ -2861,7 +2871,8 @@
       }
       (function renderHero() {
         const screen = $("#hero-screen");
-        const { video, image } = CONFIG.hero || {};
+        const { video, image, imageDark } = CONFIG.hero || {};
+        const heroSrc = (dark) => (dark && imageDark) ? imageDark : image;
         const useImage = () => {
           if (!image) {
             showMock(screen);
@@ -2871,9 +2882,20 @@
           const img = new Image();
           img.alt = "ofctools app screen";
           img.decoding = "async";
-          img.onerror = () => { showMock(screen); note(`Hero image not found: <code>${esc(image)}</code>`); };
-          img.src = image;
+          img.dataset.themeSrc = "hero";
+          img.onerror = () => {
+            // Dark missing → try light; light missing → mock
+            if (img.src.includes(imageDark) && image && imageDark !== image) { img.src = image; return; }
+            showMock(screen);
+            note(`Hero image not found: <code>${esc(heroSrc(isDarkTheme()))}</code>`);
+          };
+          img.src = heroSrc(isDarkTheme());
           screen.replaceChildren(img);
+          onThemeChange((dark) => {
+            if (!screen.contains(img)) return;
+            const next = heroSrc(dark);
+            if (img.getAttribute("src") !== next) img.src = next;
+          });
         };
         if (!video) return useImage();
         const v = document.createElement("video");
@@ -2914,13 +2936,25 @@
           note("Add app screenshots to <code>CONFIG.screens</code> (the strip hides itself until then)");
           return;
         }
-        host.innerHTML = shots.map((s) =>
-          `<figure class="shot"><div class="phone sm"><div class="screen"><img src="${esc(s.src)}" alt="${esc(s.label || "ofctools screen")}" loading="lazy" decoding="async"></div></div>${s.label ? `<figcaption>${esc(s.label)}</figcaption>` : ""}</figure>`).join("");
+        const dark = isDarkTheme();
+        host.innerHTML = shots.map((s) => {
+          const light = s.src, darkSrc = s.srcDark || s.src;
+          const src = dark ? darkSrc : light;
+          return `<figure class="shot"><div class="phone sm"><div class="screen"><img src="${esc(src)}" data-src-light="${esc(light)}" data-src-dark="${esc(darkSrc)}" alt="${esc(s.label || "ofctools screen")}" loading="lazy" decoding="async"></div></div>${s.label ? `<figcaption>${esc(s.label)}</figcaption>` : ""}</figure>`;
+        }).join("");
         $$("img", host).forEach((img) => img.addEventListener("error", () => {
+          const light = img.dataset.srcLight;
+          if (img.getAttribute("src") !== light && light) { img.src = light; return; }
           note(`Screenshot not found: <code>${esc(img.getAttribute("src"))}</code>`);
           img.closest(".shot").remove();
           if (!$(".shot", host)) $("#screens").hidden = true;
-        }, { once: true }));
+        }));
+        onThemeChange((isDark) => {
+          $$("img[data-src-light]", host).forEach((img) => {
+            const next = isDark ? img.dataset.srcDark : img.dataset.srcLight;
+            if (next && img.getAttribute("src") !== next) img.src = next;
+          });
+        });
       })();
 
       /* ---------- Live demo: compress a photo in this tab ---------- */
